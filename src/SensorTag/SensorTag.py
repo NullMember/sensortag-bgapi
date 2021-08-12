@@ -1,7 +1,8 @@
-from bgapi.module import *
-from bgapi.cmd_def import *
-from enum import Enum
+import bgapi.module
 import time
+import serial.tools.list_ports
+
+from enum import Enum
 
 class SensorTagServices(Enum):
     Device              = "1800"
@@ -335,7 +336,7 @@ class SensorTag:
         self.targetReversed.reverse()
         self.targetBytes: bytes = bytes(self.targetReversed)
         self.baud = baud
-        self.client = BlueGigaClient(self.port, self.baud)
+        self.client = bgapi.module.BlueGigaClient(self.port, self.baud)
         self.connection = None
         self.connected = False
         self.device = None
@@ -346,6 +347,12 @@ class SensorTag:
         self._UUIDH2B16 = lambda uuid : int(uuid.replace('-', ''), 16).to_bytes(16, byteorder="little")
         self._UUIDH2B2 = lambda uuid : int(uuid.replace('-', ''), 16).to_bytes(2, byteorder="little")
     
+    @staticmethod
+    def ports():
+        ports = serial.tools.list_ports.comports()
+        for port in ports:
+            yield port.name, port.device, port.description
+
     def scan(self, timeout: int = 3):
         self.devices = self.client.scan_all(timeout)
         for device in self.devices:
@@ -358,7 +365,7 @@ class SensorTag:
         else:
             self.connection = self.client.connect(self.device, 5, 6, 6, 100, 0)
             self.connected = True
-            self.connection.read_by_group_type(GATTService.PRIMARY_SERVICE_UUID, timeout = 10)
+            self.connection.read_by_group_type(bgapi.module.GATTService.PRIMARY_SERVICE_UUID, timeout = 10)
             services = self.connection.get_services()
             for service in services:
                 for sensortagservice in SensorTagServices:
@@ -370,8 +377,8 @@ class SensorTag:
                         pass
                 self.connection.find_information(service, timeout = 10)
                 try:
-                    self.connection.read_by_type(service, GATTCharacteristic.CHARACTERISTIC_UUID, timeout = 10)
-                    self.connection.read_by_type(service, GATTCharacteristic.CLIENT_CHARACTERISTIC_CONFIG, timeout = 10)
+                    self.connection.read_by_type(service, bgapi.module.GATTCharacteristic.CHARACTERISTIC_UUID, timeout = 10)
+                    self.connection.read_by_type(service, bgapi.module.GATTCharacteristic.CLIENT_CHARACTERISTIC_CONFIG, timeout = 10)
                 except:
                     pass
             characteristics = self.connection.get_characteristics()
