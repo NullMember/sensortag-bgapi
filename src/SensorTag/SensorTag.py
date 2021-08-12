@@ -218,6 +218,10 @@ class AccelerometerRange(Enum):
     G8  = 2
     G16 = 3
 
+class MovementPeriod():
+    Min = 0x0A
+    Max = 0xFF
+
 class RegisterCharacteristics(Enum):
     Data        = "F000AC01-0451-4000-B000-000000000000"
     Address     = "F000AC02-0451-4000-B000-000000000000"
@@ -447,13 +451,15 @@ class SensorTag:
             while True:
                 try:
                     self.connection.read_by_handle(self.services[sensor][property].value_handle)
-                    return list(self.services[sensor][property].value)
+                    break
                 except:
                     attempts += 1
                     if attempts > self.maximumAttempts:
                         raise TimeoutError("Maximum attempts exceeded")
                     time.sleep(0.001)
                     pass
+            time.sleep(0.2)
+            return list(self.services[sensor][property].value)
     
     def writeValue(self, sensor: str, property: str, value: list):
         if self.connected:
@@ -468,6 +474,8 @@ class SensorTag:
                         raise TimeoutError("Maximum attempts exceeded")
                     time.sleep(0.001)
                     pass
+            time.sleep(0.2)
+            return
 
     def assignCallback(self, sensor: str, property: str, callback, filter = lambda v : v):
         if self.connected:
@@ -757,7 +765,7 @@ class SensorTag:
     
     def changeIOMode(self, mode: IOMode):
         if self.connected:
-            if mode == IOMode.RemoteMode:
+            if mode == IOMode.Remote:
                 self.writeValue('IO', 'Data', [0])
                 time.sleep(0.1)
             self.writeValue('IO', 'Configuration', [mode.value])
@@ -868,7 +876,7 @@ class SensorTag:
             return self.readValue('Movement', 'Configuration')
 
     def convertMovementConfiguration(self, raw):
-        value = self.twotoone(raw[MovementConfiguration.LSB], raw[MovementConfiguration.LSB])
+        value = self.twotoone(raw[MovementConfiguration.LSB], raw[MovementConfiguration.MSB])
         result = {}
         result['GyroZEnable'] = bool(value & MovementConfiguration.GyroZMask)
         result['GyroYEnable'] = bool(value & MovementConfiguration.GyroYMask)
@@ -884,7 +892,7 @@ class SensorTag:
     def enableMovementGyro(self, x: bool, y: bool, z: bool):
         if self.connected:
             raw = self.readMovementConfigurationRaw()
-            value = self.twotoone(raw[MovementConfiguration.LSB], raw[MovementConfiguration.LSB])
+            value = self.twotoone(raw[MovementConfiguration.LSB], raw[MovementConfiguration.MSB])
             if x:
                 value = value | (0xFFFF & MovementConfiguration.GyroXMask)
             else:
@@ -897,12 +905,12 @@ class SensorTag:
                 value = value | (0xFFFF & MovementConfiguration.GyroZMask)
             else:
                 value = value & (0xFFFF ^ MovementConfiguration.GyroZMask)
-            self.writeValue('Movement', 'Configuration', [value & 0xFF, (value & 0xFF) >> 8])
+            self.writeValue('Movement', 'Configuration', [value & 0xFF, (value >> 8) & 0xFF])
     
     def enableMovementAcc(self, x: bool, y: bool, z: bool):
         if self.connected:
             raw = self.readMovementConfigurationRaw()
-            value = self.twotoone(raw[MovementConfiguration.LSB], raw[MovementConfiguration.LSB])
+            value = self.twotoone(raw[MovementConfiguration.LSB], raw[MovementConfiguration.MSB])
             if x:
                 value = value | (0xFFFF & MovementConfiguration.AccXMask)
             else:
@@ -915,35 +923,47 @@ class SensorTag:
                 value = value | (0xFFFF & MovementConfiguration.AccZMask)
             else:
                 value = value & (0xFFFF ^ MovementConfiguration.AccZMask)
-            self.writeValue('Movement', 'Configuration', [value & 0xFF, (value & 0xFF) >> 8])
+            self.writeValue('Movement', 'Configuration', [value & 0xFF, (value >> 8) & 0xFF])
     
     def enableMovementMag(self, state: bool):
         if self.connected:
             raw = self.readMovementConfigurationRaw()
-            value = self.twotoone(raw[MovementConfiguration.LSB], raw[MovementConfiguration.LSB])
+            value = self.twotoone(raw[MovementConfiguration.LSB], raw[MovementConfiguration.MSB])
             if state:
                 value = value | (0xFFFF & MovementConfiguration.MagMask)
             else:
                 value = value & (0xFFFF ^ MovementConfiguration.MagMask)
-            self.writeValue('Movement', 'Configuration', [value & 0xFF, (value & 0xFF) >> 8])
+            self.writeValue('Movement', 'Configuration', [value & 0xFF, (value >> 8) & 0xFF])
 
     def enableMovementWakeOnMotion(self, state: bool):
         if self.connected:
             raw = self.readMovementConfigurationRaw()
-            value = self.twotoone(raw[MovementConfiguration.LSB], raw[MovementConfiguration.LSB])
+            value = self.twotoone(raw[MovementConfiguration.LSB], raw[MovementConfiguration.MSB])
             if state:
                 value = value | (0xFFFF & MovementConfiguration.WakeOnMotionMask)
             else:
                 value = value & (0xFFFF ^ MovementConfiguration.WakeOnMotionMask)
-            self.writeValue('Movement', 'Configuration', [value & 0xFF, (value & 0xFF) >> 8])
+            self.writeValue('Movement', 'Configuration', [value & 0xFF, (value >> 8) & 0xFF])
     
     def changeMovementAccRange(self, g: AccelerometerRange):
         if self.connected:
             raw = self.readMovementConfigurationRaw()
-            value = self.twotoone(raw[MovementConfiguration.LSB], raw[MovementConfiguration.LSB])
+            value = self.twotoone(raw[MovementConfiguration.LSB], raw[MovementConfiguration.MSB])
             value = value & (0xFFFF ^ (0b11 << MovementConfiguration.AccRangeShift))
             value = value | (0xFFFF & (g.value << MovementConfiguration.AccRangeShift))
-            self.writeValue('Movement', 'Configuration', [value & 0xFF, (value & 0xFF) >> 8])
+            self.writeValue('Movement', 'Configuration', [value & 0xFF, (value >> 8) & 0xFF])
+    
+    def readMovementPeriodRaw(self):
+        if self.connected:
+            return self.readValue('Movement', 'Period')
+    
+    def convertMovementPeriodMS(self, raw):
+        return raw[0] * 10
+    
+    def changeMovementPeriod(self, ms: int):
+        if self.connected:
+            ms = int(ms / 10)
+            self.writeValue('Movement', 'Period', [min(MovementPeriod.Max, max(MovementPeriod.Min, ms))])
     # Movement Methods
 
     # Register Methods
